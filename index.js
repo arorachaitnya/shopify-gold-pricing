@@ -12,7 +12,7 @@ async function getGoldRate() {
 
   const response =
     await fetch(
-      "https://gold-api.com/api/XAU/USD"
+      "https://api.gold-api.com/price/XAU"
     );
 
   const data =
