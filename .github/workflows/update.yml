@@ -1,0 +1,30 @@
+name: Gold Price Update
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+
+  workflow_dispatch:
+
+jobs:
+  update:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+
+      - run: node index.js
+        env:
+          SHOPIFY_STORE:
+            ${{ secrets.SHOPIFY_STORE }}
+
+          SHOPIFY_ACCESS_TOKEN:
+            ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
