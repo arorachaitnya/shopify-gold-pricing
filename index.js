@@ -1,129 +1,369 @@
 const fetch = require("node-fetch");
 
-const SHOP  = process.env.SHOPIFY_STORE;
-const TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const GOLD_API_KEY = process.env.GOLD_API_KEY;
+const SHOP =
+  process.env.SHOPIFY_STORE;
 
-// ─── 1. FETCH LIVE GOLD RATE (INR per gram) ───────────────────────────────────
-async function getGoldRateINR() {
-  // GoldAPI.io — free, reliable, works in GitHub Actions
-  const res = await fetch("https://www.goldapi.io/api/XAU/INR", {
-    headers: { "x-access-token": GOLD_API_KEY }
-  });
+const CLIENT_ID =
+  process.env.SHOPIFY_CLIENT_ID;
 
-  if (!res.ok) {
-    throw new Error(`GoldAPI responded with status ${res.status}`);
+const CLIENT_SECRET =
+  process.env.SHOPIFY_CLIENT_SECRET;
+
+const GOLD_API_KEY =
+  process.env.GOLD_API_KEY;
+
+// ─── 1. GENERATE SHOPIFY ACCESS TOKEN ─────────────────────────────
+async function getShopifyToken() {
+
+  const response =
+    await fetch(
+      `https://${SHOP}/admin/oauth/access_token`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body: JSON.stringify({
+          client_id:
+            CLIENT_ID,
+
+          client_secret:
+            CLIENT_SECRET,
+
+          grant_type:
+            "client_credentials"
+        })
+      }
+    );
+
+  const data =
+    await response.json();
+
+  console.log(
+    "Token response:",
+    data
+  );
+
+  if (!data.access_token) {
+    throw new Error(
+      "Could not generate Shopify token"
+    );
   }
 
-  const data = await res.json();
-  const inrPerGram24k = data.price_gram_24k;
-
-  console.log(`Gold rate: ₹${inrPerGram24k.toFixed(2)}/gram (24k)`);
-  return inrPerGram24k;
+  return data.access_token;
 }
 
-// ─── 2. FETCH ALL PRODUCTS ────────────────────────────────────────────────────
-async function getProducts() {
-  const res = await fetch(
-    `https://${SHOP}/admin/api/2025-01/products.json?limit=250`,
-    { headers: { "X-Shopify-Access-Token": TOKEN } }
+// ─── 2. FETCH LIVE GOLD RATE ──────────────────────────────────────
+async function getGoldRateINR() {
+
+  const res =
+    await fetch(
+      "https://www.goldapi.io/api/XAU/INR",
+      {
+        headers: {
+          "x-access-token":
+            GOLD_API_KEY
+        }
+      }
+    );
+
+  if (!res.ok) {
+    throw new Error(
+      `GoldAPI status ${res.status}`
+    );
+  }
+
+  const data =
+    await res.json();
+
+  const rate =
+    data.price_gram_24k;
+
+  console.log(
+    `Gold rate: ₹${rate}/gram`
   );
-  const data = await res.json();
-  console.log("Shopify response:", JSON.stringify(data).slice(0, 300));
-  return data.products;
+
+  return rate;
 }
 
-// ─── 3. FETCH METAFIELDS FOR A PRODUCT ───────────────────────────────────────
-async function getMetafields(productId) {
-  const res = await fetch(
-    `https://${SHOP}/admin/api/2025-01/products/${productId}/metafields.json`,
-    { headers: { "X-Shopify-Access-Token": TOKEN } }
+// ─── 3. FETCH PRODUCTS ────────────────────────────────────────────
+async function getProducts(
+  token
+) {
+
+  const res =
+    await fetch(
+      `https://${SHOP}/admin/api/2025-01/products.json?limit=250`,
+      {
+        headers: {
+          "X-Shopify-Access-Token":
+            token
+        }
+      }
+    );
+
+  const data =
+    await res.json();
+
+  console.log(
+    "Products fetched"
   );
-  const data = await res.json();
+
+  return data.products || [];
+}
+
+// ─── 4. FETCH PRODUCT METAFIELDS ─────────────────────────────────
+async function getMetafields(
+  token,
+  productId
+) {
+
+  const res =
+    await fetch(
+      `https://${SHOP}/admin/api/2025-01/products/${productId}/metafields.json`,
+      {
+        headers: {
+          "X-Shopify-Access-Token":
+            token
+        }
+      }
+    );
+
+  const data =
+    await res.json();
+
   return data.metafields || [];
 }
 
-// Helper: find a metafield value by key (case-insensitive)
-function getMeta(metafields, key) {
-  const found = metafields.find(
-    (m) => m.key.toLowerCase() === key.toLowerCase()
-  );
-  return found ? found.value : null;
+// ─── 5. HELPER ────────────────────────────────────────────────────
+function getMeta(
+  metafields,
+  key
+) {
+
+  const found =
+    metafields.find(
+      (m) =>
+        m.key.toLowerCase() ===
+        key.toLowerCase()
+    );
+
+  return found
+    ? found.value
+    : null;
 }
 
-// ─── 4. CALCULATE FINAL PRICE ─────────────────────────────────────────────────
-function calculatePrice(goldRateINR24k, metafields) {
-  const weight      = parseFloat(getMeta(metafields, "weight"))        || 0;
-  const purity      = parseFloat(getMeta(metafields, "purity"))        || 22;
-  const makingValue = parseFloat(getMeta(metafields, "making_value"))  || 0;
-  const makingType  = (getMeta(metafields, "making_type") || "percentage").toLowerCase().trim();
-  const stoneCost   = parseFloat(getMeta(metafields, "stone_cost"))    || 0;
-  const gst         = parseFloat(getMeta(metafields, "gst"))           || 3;
+// ─── 6. CALCULATE PRICE ───────────────────────────────────────────
+function calculatePrice(
+  goldRate,
+  metafields
+) {
 
-  // Gold value: rate is per gram at 24k, scale by purity
-  const goldValue = goldRateINR24k * weight * (purity / 24);
+  const weight =
+    parseFloat(
+      getMeta(
+        metafields,
+        "weight"
+      )
+    ) || 0;
 
-  // Making charges: flat amount OR percentage of gold value
-  const makingCharge = makingType === "flat"
-    ? makingValue
-    : goldValue * (makingValue / 100);
+  const purity =
+    parseFloat(
+      getMeta(
+        metafields,
+        "purity"
+      )
+    ) || 22;
 
-  // Subtotal (gold + making + stone)
-  const subtotal = goldValue + makingCharge + stoneCost;
+  const makingValue =
+    parseFloat(
+      getMeta(
+        metafields,
+        "making_value"
+      )
+    ) || 0;
 
-  // Apply GST
-  const finalPrice = subtotal * (1 + gst / 100);
+  const makingType =
+    (
+      getMeta(
+        metafields,
+        "making_type"
+      ) || "percentage"
+    )
+      .toLowerCase()
+      .trim();
 
-  return Math.round(finalPrice);
+  const stoneCost =
+    parseFloat(
+      getMeta(
+        metafields,
+        "stone_cost"
+      )
+    ) || 0;
+
+  const gst =
+    parseFloat(
+      getMeta(
+        metafields,
+        "gst"
+      )
+    ) || 3;
+
+  const goldValue =
+    goldRate *
+    weight *
+    (purity / 24);
+
+  const makingCharge =
+    makingType === "flat"
+      ? makingValue
+      : goldValue *
+        (makingValue / 100);
+
+  const subtotal =
+    goldValue +
+    makingCharge +
+    stoneCost;
+
+  const finalPrice =
+    subtotal *
+    (1 + gst / 100);
+
+  return Math.round(
+    finalPrice
+  );
 }
 
-// ─── 5. UPDATE VARIANT PRICE ON SHOPIFY ──────────────────────────────────────
-async function updateVariantPrice(variantId, price) {
-  const res = await fetch(
-    `https://${SHOP}/admin/api/2025-01/variants/${variantId}.json`,
-    {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Shopify-Access-Token": TOKEN,
-      },
-      body: JSON.stringify({
-        variant: { id: variantId, price: price.toString() },
-      }),
-    }
-  );
-  const data = await res.json();
+// ─── 7. UPDATE VARIANT PRICE ─────────────────────────────────────
+async function updateVariantPrice(
+  token,
+  variantId,
+  price
+) {
+
+  const res =
+    await fetch(
+      `https://${SHOP}/admin/api/2025-01/variants/${variantId}.json`,
+      {
+        method: "PUT",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "X-Shopify-Access-Token":
+            token
+        },
+
+        body: JSON.stringify({
+          variant: {
+            id: variantId,
+            price:
+              price.toString()
+          }
+        })
+      }
+    );
+
+  const data =
+    await res.json();
+
   if (!data.variant) {
-    console.error(`  ✗ Shopify error on variant ${variantId}:`, JSON.stringify(data));
+
+    console.error(
+      `Variant update failed`,
+      JSON.stringify(data)
+    );
+
+  } else {
+
+    console.log(
+      `Updated variant ${variantId}`
+    );
   }
 }
+
+// ─── 8. MAIN ──────────────────────────────────────────────────────
 async function run() {
-  console.log("SHOP:", SHOP);  // ADD THIS
-  console.log("TOKEN starts with:", TOKEN ? TOKEN.slice(0, 10) : "MISSING");  // ADD THIS
+
   try {
-// ─── 6. MAIN ──────────────────────────────────────────────────────────────────
-async function run() {
-  try {
-    const goldRateINR = await getGoldRateINR();
-    const products = await getProducts();
-    console.log(`\nUpdating ${products.length} product(s)...\n`);
+
+    console.log(
+      "Store:",
+      SHOP
+    );
+
+    const token =
+      await getShopifyToken();
+
+    console.log(
+      "Shopify token generated"
+    );
+
+    const goldRate =
+      await getGoldRateINR();
+
+    const products =
+      await getProducts(
+        token
+      );
+
+    console.log(
+      `Found ${products.length} products`
+    );
 
     for (const product of products) {
-      try {
-        const metafields  = await getMetafields(product.id);
-        const finalPrice  = calculatePrice(goldRateINR, metafields);
-        const variant     = product.variants[0];
 
-        await updateVariantPrice(variant.id, finalPrice);
-        console.log(`  ✓ ${product.title} → ₹${finalPrice}`);
+      try {
+
+        const metafields =
+          await getMetafields(
+            token,
+            product.id
+          );
+
+        const finalPrice =
+          calculatePrice(
+            goldRate,
+            metafields
+          );
+
+        const variant =
+          product.variants[0];
+
+        await updateVariantPrice(
+          token,
+          variant.id,
+          finalPrice
+        );
+
+        console.log(
+          `✓ ${product.title} → ₹${finalPrice}`
+        );
+
       } catch (err) {
-        console.error(`  ✗ "${product.title}": ${err.message}`);
+
+        console.error(
+          `✗ ${product.title}:`,
+          err.message
+        );
       }
     }
 
-    console.log("\nAll done.");
+    console.log(
+      "DONE"
+    );
+
   } catch (err) {
-    console.error("Fatal error:", err.message);
+
+    console.error(
+      "Fatal error:",
+      err.message
+    );
+
     process.exit(1);
   }
 }
