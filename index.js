@@ -97,7 +97,10 @@ async function updateVariantPrice(variantId, price) {
     console.error(`  ✗ Shopify error on variant ${variantId}:`, JSON.stringify(data));
   }
 }
-
+async function run() {
+  console.log("SHOP:", SHOP);  // ADD THIS
+  console.log("TOKEN starts with:", TOKEN ? TOKEN.slice(0, 10) : "MISSING");  // ADD THIS
+  try {
 // ─── 6. MAIN ──────────────────────────────────────────────────────────────────
 async function run() {
   try {
