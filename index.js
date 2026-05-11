@@ -1,24 +1,25 @@
 const fetch = require("node-fetch");
 
-const SHOP = process.env.SHOPIFY_STORE;
+const SHOP  = process.env.SHOPIFY_STORE;
 const TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+const GOLD_API_KEY = process.env.GOLD_API_KEY;
 
 // ─── 1. FETCH LIVE GOLD RATE (INR per gram) ───────────────────────────────────
 async function getGoldRateINR() {
-  // metals.live is reliable in GitHub Actions unlike api.gold-api.com
-  const res = await fetch("https://metals.live/api/spot/gold");
+  // GoldAPI.io — free, reliable, works in GitHub Actions
+  const res = await fetch("https://www.goldapi.io/api/XAU/INR", {
+    headers: { "x-access-token": GOLD_API_KEY }
+  });
+
+  if (!res.ok) {
+    throw new Error(`GoldAPI responded with status ${res.status}`);
+  }
+
   const data = await res.json();
-  const usdPerOunce = data[0].price;
-  const usdPerGram = usdPerOunce / 31.1035;
+  const inrPerGram24k = data.price_gram_24k;
 
-  // Live USD → INR rate
-  const fxRes = await fetch("https://api.frankfurter.app/latest?from=USD&to=INR");
-  const fxData = await fxRes.json();
-  const usdToInr = fxData.rates.INR;
-
-  const inrPerGram = usdPerGram * usdToInr;
-  console.log(`Gold: $${usdPerOunce.toFixed(2)}/oz | ₹${inrPerGram.toFixed(2)}/g | 1 USD = ₹${usdToInr}`);
-  return inrPerGram;
+  console.log(`Gold rate: ₹${inrPerGram24k.toFixed(2)}/gram (24k)`);
+  return inrPerGram24k;
 }
 
 // ─── 2. FETCH ALL PRODUCTS ────────────────────────────────────────────────────
@@ -41,7 +42,7 @@ async function getMetafields(productId) {
   return data.metafields || [];
 }
 
-// Helper: find a metafield value by key name (case-insensitive)
+// Helper: find a metafield value by key (case-insensitive)
 function getMeta(metafields, key) {
   const found = metafields.find(
     (m) => m.key.toLowerCase() === key.toLowerCase()
@@ -50,23 +51,23 @@ function getMeta(metafields, key) {
 }
 
 // ─── 4. CALCULATE FINAL PRICE ─────────────────────────────────────────────────
-function calculatePrice(goldRateINR, metafields) {
-  const weight      = parseFloat(getMeta(metafields, "weight"))       || 0;
-  const purity      = parseFloat(getMeta(metafields, "purity"))       || 22;
-  const makingValue = parseFloat(getMeta(metafields, "making_value")) || 0;
+function calculatePrice(goldRateINR24k, metafields) {
+  const weight      = parseFloat(getMeta(metafields, "weight"))        || 0;
+  const purity      = parseFloat(getMeta(metafields, "purity"))        || 22;
+  const makingValue = parseFloat(getMeta(metafields, "making_value"))  || 0;
   const makingType  = (getMeta(metafields, "making_type") || "percentage").toLowerCase().trim();
-  const stoneCost   = parseFloat(getMeta(metafields, "stone_cost"))   || 0;
-  const gst         = parseFloat(getMeta(metafields, "gst"))          || 3;
+  const stoneCost   = parseFloat(getMeta(metafields, "stone_cost"))    || 0;
+  const gst         = parseFloat(getMeta(metafields, "gst"))           || 3;
 
-  // Gold value based on weight and purity
-  const goldValue = goldRateINR * weight * (purity / 24);
+  // Gold value: rate is per gram at 24k, scale by purity
+  const goldValue = goldRateINR24k * weight * (purity / 24);
 
-  // Making charges — either flat amount or % of gold value
+  // Making charges: flat amount OR percentage of gold value
   const makingCharge = makingType === "flat"
     ? makingValue
     : goldValue * (makingValue / 100);
 
-  // Subtotal before GST (gold + making + stone)
+  // Subtotal (gold + making + stone)
   const subtotal = goldValue + makingCharge + stoneCost;
 
   // Apply GST
@@ -92,7 +93,7 @@ async function updateVariantPrice(variantId, price) {
   );
   const data = await res.json();
   if (!data.variant) {
-    console.error(`  ✗ Failed to update variant ${variantId}:`, JSON.stringify(data));
+    console.error(`  ✗ Shopify error on variant ${variantId}:`, JSON.stringify(data));
   }
 }
 
@@ -101,23 +102,22 @@ async function run() {
   try {
     const goldRateINR = await getGoldRateINR();
     const products = await getProducts();
-    console.log(`\nUpdating ${products.length} products...\n`);
+    console.log(`\nUpdating ${products.length} product(s)...\n`);
 
     for (const product of products) {
       try {
-        const metafields = await getMetafields(product.id);
-        const finalPrice = calculatePrice(goldRateINR, metafields);
-        const variant = product.variants[0];
+        const metafields  = await getMetafields(product.id);
+        const finalPrice  = calculatePrice(goldRateINR, metafields);
+        const variant     = product.variants[0];
 
         await updateVariantPrice(variant.id, finalPrice);
         console.log(`  ✓ ${product.title} → ₹${finalPrice}`);
       } catch (err) {
-        console.error(`  ✗ Error on "${product.title}": ${err.message}`);
-        // Continue to next product even if one fails
+        console.error(`  ✗ "${product.title}": ${err.message}`);
       }
     }
 
-    console.log("\nDone.");
+    console.log("\nAll done.");
   } catch (err) {
     console.error("Fatal error:", err.message);
     process.exit(1);
