@@ -29,6 +29,7 @@ async function getProducts() {
     { headers: { "X-Shopify-Access-Token": TOKEN } }
   );
   const data = await res.json();
+  console.log("Shopify response:", JSON.stringify(data).slice(0, 200)); // ADD THIS LINE
   return data.products;
 }
 
