@@ -4,7 +4,9 @@ const SHOP = process.env.SHOPIFY_STORE;
 const TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const GOLD_API_KEY = process.env.GOLD_API_KEY;
 
-// ─── 1. FETCH LIVE GOLD RATE (INR per gram 24KT) ───────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 1. FETCH LIVE GOLD RATE (24KT INR/GRAM)
+// ─────────────────────────────────────────────────────────────
 async function getGoldRateINR() {
 
   const res = await fetch(
@@ -35,17 +37,19 @@ async function getGoldRateINR() {
     );
   }
 
-  const inrPerGram24k =
+  const goldRate24k =
     data.price_gram_24k;
 
   console.log(
-    `Gold rate: ₹${inrPerGram24k.toFixed(2)}/gram (24KT)`
+    `\nLive Gold Rate (24KT): ₹${goldRate24k.toFixed(2)}/gram\n`
   );
 
-  return inrPerGram24k;
+  return goldRate24k;
 }
 
-// ─── 2. FETCH PRODUCTS ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 2. FETCH PRODUCTS
+// ─────────────────────────────────────────────────────────────
 async function getProducts() {
 
   const res = await fetch(
@@ -63,7 +67,6 @@ async function getProducts() {
   if (!data.products) {
 
     console.log(
-      "Shopify response:",
       JSON.stringify(data, null, 2)
     );
 
@@ -75,7 +78,9 @@ async function getProducts() {
   return data.products;
 }
 
-// ─── 3. FETCH PRODUCT METAFIELDS ───────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 3. FETCH PRODUCT METAFIELDS
+// ─────────────────────────────────────────────────────────────
 async function getMetafields(productId) {
 
   const res = await fetch(
@@ -93,7 +98,9 @@ async function getMetafields(productId) {
   return data.metafields || [];
 }
 
-// ─── HELPER: GET METAFIELD VALUE ───────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 4. HELPER: GET METAFIELD VALUE
+// ─────────────────────────────────────────────────────────────
 function getMeta(metafields, key) {
 
   const found = metafields.find(
@@ -105,7 +112,9 @@ function getMeta(metafields, key) {
   return found ? found.value : null;
 }
 
-// ─── HELPER: DETECT PURITY FROM VARIANT ────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 5. DETECT GOLD PURITY FROM VARIANT
+// ─────────────────────────────────────────────────────────────
 function getPurityFromVariant(variant) {
 
   const text = (
@@ -142,14 +151,17 @@ function getPurityFromVariant(variant) {
   return 22;
 }
 
-// ─── 4. CALCULATE FINAL PRICE ──────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 6. CALCULATE FINAL PRICE
+// ─────────────────────────────────────────────────────────────
 function calculatePrice(
-  goldRateINR24k,
+  goldRate24k,
   metafields,
   purity
 ) {
 
-  // METAFIELDS
+  // PRODUCT METAFIELDS
+
   const weight =
     parseFloat(
       getMeta(metafields, "weight")
@@ -160,64 +172,67 @@ function calculatePrice(
       getMeta(metafields, "stone_cost")
     ) || 0;
 
-  const makingChargesPercent =
+  const makingCharges =
     parseFloat(
       getMeta(metafields, "making_charges")
     ) || 0;
 
-  const gstPercent =
+  const gst =
     parseFloat(
       getMeta(metafields, "gst")
     ) || 3;
 
-  // STEP 1:
-  // Convert 24KT live rate to purity rate
+  // CONVERT 24KT RATE TO VARIANT PURITY RATE
+
   const purityRate =
-    goldRateINR24k *
+    goldRate24k *
     (purity / 24);
 
-  // STEP 2:
-  // Gold value
+  // GOLD VALUE
+
   const goldValue =
     purityRate * weight;
 
-  // STEP 3:
-  // Add stone cost
+  // ADD STONE COST
+
   const subtotal =
     goldValue + stoneCost;
 
-  // STEP 4:
-  // Add making charges (%)
-  const withMakingCharges =
-    subtotal *
-    (1 + makingChargesPercent / 100);
+  // APPLY MAKING CHARGES %
 
-  // STEP 5:
-  // Add GST (%)
+  const afterMakingCharges =
+    subtotal *
+    (1 + makingCharges / 100);
+
+  // APPLY GST %
+
   const finalPrice =
-    withMakingCharges *
-    (1 + gstPercent / 100);
+    afterMakingCharges *
+    (1 + gst / 100);
 
   return Math.round(finalPrice);
 }
 
-// ─── 5. UPDATE VARIANT PRICE ───────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 7. UPDATE VARIANT PRICE
+// ─────────────────────────────────────────────────────────────
 async function updateVariantPrice(
+  productId,
   variantId,
   price
 ) {
 
   const res = await fetch(
-    `https://${SHOP}/admin/api/2025-01/variants/${variantId}.json`,
+    `https://${SHOP}/admin/api/2025-01/products/${productId}/variants/${variantId}.json`,
     {
       method: "PUT",
 
       headers: {
-        "Content-Type":
-          "application/json",
-
         "X-Shopify-Access-Token":
-          TOKEN
+          TOKEN,
+
+        "Content-Type":
+          "application/json"
       },
 
       body: JSON.stringify({
@@ -234,27 +249,40 @@ async function updateVariantPrice(
   if (!data.variant) {
 
     console.error(
-      `✗ Shopify error updating variant ${variantId}:`,
+      `\n✗ Failed updating variant ${variantId}`
+    );
+
+    console.error(
       JSON.stringify(data, null, 2)
     );
+
+    return;
   }
+
+  console.log(
+    `✓ Updated Variant ${variantId} → ₹${price}`
+  );
 }
 
-// ─── 6. MAIN ────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// 8. MAIN
+// ─────────────────────────────────────────────────────────────
 async function run() {
 
   try {
 
-    console.log("Store:", SHOP);
+    console.log(
+      `Store: ${SHOP}\n`
+    );
 
-    const goldRateINR =
+    const goldRate24k =
       await getGoldRateINR();
 
     const products =
       await getProducts();
 
     console.log(
-      `\nUpdating ${products.length} product(s)...\n`
+      `Updating ${products.length} products...\n`
     );
 
     for (const product of products) {
@@ -269,46 +297,75 @@ async function run() {
         // LOOP THROUGH ALL VARIANTS
         for (const variant of product.variants) {
 
-          // Detect purity from variant
           const purity =
             getPurityFromVariant(
               variant
             );
 
-          // Calculate price
           const finalPrice =
             calculatePrice(
-              goldRateINR,
+              goldRate24k,
               metafields,
               purity
             );
 
-          // Update Shopify variant price
+          console.log({
+            product: product.title,
+            variant: variant.title,
+            purity,
+            weight:
+              getMeta(
+                metafields,
+                "weight"
+              ),
+            stoneCost:
+              getMeta(
+                metafields,
+                "stone_cost"
+              ),
+            makingCharges:
+              getMeta(
+                metafields,
+                "making_charges"
+              ),
+            gst:
+              getMeta(
+                metafields,
+                "gst"
+              ),
+            finalPrice
+          });
+
           await updateVariantPrice(
+            product.id,
             variant.id,
             finalPrice
-          );
-
-          console.log(
-            `✓ ${product.title} | ${variant.title} → ₹${finalPrice}`
           );
         }
 
       } catch (err) {
 
         console.error(
-          `✗ ${product.title}:`,
+          `\n✗ ${product.title}`
+        );
+
+        console.error(
           err.message
         );
       }
     }
 
-    console.log("\nAll done.");
+    console.log(
+      "\n✓ ALL PRODUCTS UPDATED\n"
+    );
 
   } catch (err) {
 
     console.error(
-      "Fatal error:",
+      "\nFATAL ERROR:"
+    );
+
+    console.error(
       err.message
     );
 
