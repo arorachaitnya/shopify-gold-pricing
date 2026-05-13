@@ -99,7 +99,7 @@ async function getMetafields(productId) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. HELPER: GET METAFIELD VALUE
+// 4. GET METAFIELD VALUE
 // ─────────────────────────────────────────────────────────────
 function getMeta(metafields, key) {
 
@@ -174,7 +174,7 @@ function calculatePrice(
 
   const makingCharges =
     parseFloat(
-      getMeta(metafields, "making_charges")
+      getMeta(metafields, "making_value")
     ) || 0;
 
   const gst =
@@ -217,13 +217,12 @@ function calculatePrice(
 // 7. UPDATE VARIANT PRICE
 // ─────────────────────────────────────────────────────────────
 async function updateVariantPrice(
-  productId,
   variantId,
   price
 ) {
 
   const res = await fetch(
-    `https://${SHOP}/admin/api/2025-01/products/${productId}/variants/${variantId}.json`,
+    `https://${SHOP}/admin/api/2025-01/variants/${variantId}.json`,
     {
       method: "PUT",
 
@@ -238,25 +237,34 @@ async function updateVariantPrice(
       body: JSON.stringify({
         variant: {
           id: variantId,
-          price: price.toString()
+          price: String(price)
         }
       })
     }
   );
 
-  const data = await res.json();
+  const text =
+    await res.text();
+
+  console.log(
+    `\nVariant ${variantId} Response:\n`,
+    text
+  );
+
+  let data = {};
+
+  try {
+
+    data =
+      JSON.parse(text);
+
+  } catch (e) {}
 
   if (!data.variant) {
 
-    console.error(
-      `\n✗ Failed updating variant ${variantId}`
+    throw new Error(
+      `Failed to update variant ${variantId}`
     );
-
-    console.error(
-      JSON.stringify(data, null, 2)
-    );
-
-    return;
   }
 
   console.log(
@@ -295,12 +303,17 @@ async function run() {
           );
 
         // LOOP THROUGH ALL VARIANTS
+
         for (const variant of product.variants) {
+
+          // DETECT PURITY
 
           const purity =
             getPurityFromVariant(
               variant
             );
+
+          // CALCULATE PRICE
 
           const finalPrice =
             calculatePrice(
@@ -309,35 +322,47 @@ async function run() {
               purity
             );
 
+          // DEBUG LOGS
+
           console.log({
-            product: product.title,
-            variant: variant.title,
+            product:
+              product.title,
+
+            variant:
+              variant.title,
+
             purity,
+
             weight:
               getMeta(
                 metafields,
                 "weight"
               ),
+
             stoneCost:
               getMeta(
                 metafields,
                 "stone_cost"
               ),
+
             makingCharges:
               getMeta(
                 metafields,
-                "making_charges"
+                "making_value"
               ),
+
             gst:
               getMeta(
                 metafields,
                 "gst"
               ),
+
             finalPrice
           });
 
+          // UPDATE SHOPIFY PRICE
+
           await updateVariantPrice(
-            product.id,
             variant.id,
             finalPrice
           );
