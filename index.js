@@ -40,6 +40,14 @@ async function getMetafields(productId) {
     { headers: { "X-Shopify-Access-Token": TOKEN } }
   );
   const data = await res.json();
+  console.log(
+  "Metafields:",
+  (data.metafields || []).map(m => ({
+    namespace: m.namespace,
+    key: m.key,
+    value: m.value
+  }))
+);
   return data.metafields || [];
 }
 
