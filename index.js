@@ -76,6 +76,15 @@ function calculatePrice(goldRate24k, metafields, purity) {
   const afterMaking = subtotal * (1 + making / 100);
   const finalPrice  = afterMaking * (1 + gst / 100);
 
+  console.log({
+  weight,
+  stoneCost,
+  making,
+  gst,
+  purity,
+  goldRate24k
+});
+
   return Math.round(finalPrice);
 }
 
