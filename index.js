@@ -35,20 +35,43 @@ async function getProducts() {
 
 // ─── 3. FETCH METAFIELDS ─────────────────────────────────────────────────────
 async function getMetafields(productId) {
-  const res  = await fetch(
-    `https://${SHOP}/admin/api/2025-01/products/${productId}/metafields.json`,
-    { headers: { "X-Shopify-Access-Token": TOKEN } }
+  const query = `
+  {
+    product(id: "gid://shopify/Product/${productId}") {
+      metafields(first: 50) {
+        edges {
+          node {
+            namespace
+            key
+            value
+          }
+        }
+      }
+    }
+  }`;
+
+  const res = await fetch(
+    `https://${SHOP}/admin/api/2025-01/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": TOKEN
+      },
+      body: JSON.stringify({ query })
+    }
   );
+
   const data = await res.json();
+
   console.log(
-  "Metafields:",
-  (data.metafields || []).map(m => ({
-    namespace: m.namespace,
-    key: m.key,
-    value: m.value
-  }))
-);
-  return data.metafields || [];
+    "GRAPHQL METAFIELDS:",
+    JSON.stringify(data, null, 2)
+  );
+
+  return (
+    data?.data?.product?.metafields?.edges?.map(e => e.node) || []
+  );
 }
 
 // ─── 4. GET METAFIELD VALUE BY KEY ───────────────────────────────────────────
