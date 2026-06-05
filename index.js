@@ -109,6 +109,13 @@ async function run() {
         const metafields = await getMetafields(product.id);
 
         for (const variant of product.variants) {
+
+  console.log({
+    title: variant.title,
+    option1: variant.option1,
+    option2: variant.option2,
+    option3: variant.option3
+  });
           const purity     = getPurity(variant);
           const finalPrice = calculatePrice(goldRate24k, metafields, purity);
 
