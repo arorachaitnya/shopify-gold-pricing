@@ -30,7 +30,9 @@ async function getProducts() {
   const data = JSON.parse(text);
   if (!data.products) throw new Error(`Cannot fetch products: ${text.slice(0,300)}`);
   console.log(`Found ${data.products.length} product(s)\n`);
-  return data.products;
+  return data.products.filter(
+  p => p.title === "Plain Wave Band – Silver | Test"
+);
 }
 
 // ─── 3. FETCH METAFIELDS ─────────────────────────────────────────────────────
